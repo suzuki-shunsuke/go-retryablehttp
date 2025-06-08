@@ -759,9 +759,9 @@ func (c *Client) Do(req *Request) (*http.Response, error) {
 			}
 			switch v := logger.(type) {
 			case LeveledLogger:
-				v.Debug("retrying request", "request", desc, "timeout", wait, "remaining", remain)
+				v.Warn("retrying request", "request", desc, "timeout", wait, "remaining", remain)
 			case Logger:
-				v.Printf("[DEBUG] %s: retrying in %s (%d left)", desc, wait, remain)
+				v.Printf("[WARN] %s: retrying in %s (%d left)", desc, wait, remain)
 			}
 		}
 		timer := time.NewTimer(wait)
