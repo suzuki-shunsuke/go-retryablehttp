@@ -1,4 +1,4 @@
-module github.com/hashicorp/go-retryablehttp
+module github.com/suzuki-shunsuke/go-retryablehttp
 
 require (
 	github.com/hashicorp/go-cleanhttp v0.5.2
