@@ -468,7 +468,7 @@ func TestClient_Do_WithPrepareRetry(t *testing.T) {
 			if prepareChecks != tt.expectedPrepareChecks {
 				t.Fatalf("expected %d attempts of prepare check, got %d attempts", tt.expectedPrepareChecks, prepareChecks)
 			}
-			header := req.Request.Header.Get("foo")
+			header := req.Header.Get("foo")
 			if tt.expectedPrepareChecks == 0 && header != "" {
 				t.Fatalf("expected no changes to request header 'foo', but got '%s'", header)
 			}
@@ -746,7 +746,7 @@ func TestClient_RequestWithContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
-	ctx, cancel := context.WithCancel(req.Request.Context())
+	ctx, cancel := context.WithCancel(req.Context())
 	reqCtx := req.WithContext(ctx)
 	if reqCtx == req {
 		t.Fatal("WithContext must return a new Request object")
@@ -757,7 +757,7 @@ func TestClient_RequestWithContext(t *testing.T) {
 	called := 0
 	client.CheckRetry = func(_ context.Context, resp *http.Response, err error) (bool, error) {
 		called++
-		return DefaultRetryPolicy(reqCtx.Request.Context(), resp, err)
+		return DefaultRetryPolicy(reqCtx.Context(), resp, err)
 	}
 
 	cancel()
@@ -1141,6 +1141,113 @@ func TestClient_PostForm(t *testing.T) {
 		t.Fatalf("err: %v", err)
 	}
 	resp.Body.Close()
+}
+
+func TestBackoff_RateLimitLinearJitterBackoff(t *testing.T) {
+	testCases := []struct {
+		name         string
+		min          time.Duration
+		max          time.Duration
+		headers      http.Header
+		responseCode int
+		expect       time.Duration
+	}{
+		{
+			name:         "429 no retry header",
+			min:          time.Second,
+			max:          time.Second,
+			headers:      http.Header{},
+			responseCode: http.StatusTooManyRequests,
+			expect:       time.Second,
+		},
+		{
+			name:         "503 no retry header",
+			min:          time.Second,
+			max:          time.Second,
+			headers:      http.Header{},
+			responseCode: http.StatusServiceUnavailable,
+			expect:       time.Second,
+		},
+		{
+			name: "429 retry header",
+			min:  time.Second,
+			max:  time.Second,
+			headers: http.Header{
+				"Retry-After": []string{"2"},
+			},
+			responseCode: http.StatusTooManyRequests,
+			expect:       2 * time.Second,
+		},
+		{
+			name: "503 retry header",
+			min:  time.Second,
+			max:  time.Second,
+			headers: http.Header{
+				"Retry-After": []string{"2"},
+			},
+			responseCode: http.StatusServiceUnavailable,
+			expect:       2 * time.Second,
+		},
+		{
+			name: "502 ignore retry header",
+			min:  time.Second,
+			max:  time.Second,
+			headers: http.Header{
+				"Retry-After": []string{"2"},
+			},
+			responseCode: http.StatusBadGateway,
+			expect:       time.Second,
+		},
+		{
+			name:         "502 no retry header",
+			min:          time.Second,
+			max:          time.Second,
+			headers:      http.Header{},
+			responseCode: http.StatusBadGateway,
+			expect:       time.Second,
+		},
+		{
+			name: "429 retry header with jitter",
+			min:  time.Second,
+			max:  5 * time.Second,
+			headers: http.Header{
+				"Retry-After": []string{"2"},
+			},
+			responseCode: http.StatusTooManyRequests,
+			expect:       2 * time.Second,
+		},
+		{
+			name: "429 retry header less than min",
+			min:  5 * time.Second,
+			max:  10 * time.Second,
+			headers: http.Header{
+				"Retry-After": []string{"2"},
+			},
+			responseCode: http.StatusTooManyRequests,
+			expect:       2 * time.Second,
+		},
+		{
+			name: "429 retry header in range",
+			min:  time.Second,
+			max:  10 * time.Second,
+			headers: http.Header{
+				"Retry-After": []string{"2"},
+			},
+			responseCode: http.StatusTooManyRequests,
+			expect:       2 * time.Second,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := RateLimitLinearJitterBackoff(tc.min, tc.max, 0, &http.Response{
+				StatusCode: tc.responseCode,
+				Header:     tc.headers,
+			})
+			if got != tc.expect {
+				t.Fatalf("expected %s, got %s", tc.expect, got)
+			}
+		})
+	}
 }
 
 func TestBackoff(t *testing.T) {
